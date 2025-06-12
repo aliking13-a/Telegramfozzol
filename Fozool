@@ -1,0 +1,211 @@
+import logging
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Updater, 
+    CommandHandler, 
+    MessageHandler, 
+    Filters, 
+    CallbackContext, 
+    ConversationHandler
+)
+
+# تنظیمات لاگ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# مراحل گفتگو
+START, Q_AGE, Q_WEIGHT, Q_HEIGHT, Q_MARITAL, Q_EMOTIONAL, Q_SMOKING, Q_SEX, 
+Q_HAPPINESS, Q_PORN, Q_ALCOHOL, Q_CHEAT, Q_INCOME, Q_HOMOSEXUAL = range(14)
+
+# ساختار ذخیره‌سازی داده‌ها
+user_data = {}
+
+def start(update: Update, context: CallbackContext) -> int:
+    """شروع ربات و ایجاد لینک اختصاصی"""
+    user = update.effective_user
+    bot_username = context.bot.username
+    
+    # ایجاد لینک اختصاصی
+    invite_link = f"https://t.me/{bot_username}?start={user.id}"
+    
+    # ذخیره اطلاعات کاربر دعوت کننده
+    if user.id not in user_data:
+        user_data[user.id] = {"link": invite_link, "confessions": []}
+    
+    welcome_text = (
+        "به ربات اعتراف‌گیر خوش اومدید! 😈\n\n"
+        "👇 لینک اختصاصی شما برای دریافت اعترافات:\n"
+        f"{invite_link}\n\n"
+        "این لینک را برای دوستان خود بفرستید تا به سوالات پاسخ دهند و "
+        "اعترافاتشان مستقیم برای شما ارسال شود!"
+    )
+    
+    update.message.reply_text(welcome_text)
+    return ConversationHandler.END
+
+def start_with_referral(update: Update, context: CallbackContext) -> int:
+    """شروع ربات توسط کاربر دعوت شده"""
+    user = update.effective_user
+    args = context.args
+    
+    if not args:
+        update.message.reply_text("لینک معتبر نیست! لطفاً از لینک اصلی استفاده کنید.")
+        return ConversationHandler.END
+    
+    inviter_id = int(args[0])
+    
+    # ذخیره اطلاعات دعوت کننده
+    context.user_data['inviter_id'] = inviter_id
+    context.user_data['confession'] = {}
+    
+    # شروع پرسش سوالات
+    update.message.reply_text(
+        "😈 به ربات اعتراف‌گیر خوش اومدید!\n"
+        "پاسخ‌های شما مستقیم برای صاحب لینک ارسال خواهد شد.\n\n"
+        "👇 لطفاً به سوالات پاسخ دهید:\n\n"
+        "1. سن خود را وارد کنید (مثال: 20):"
+    )
+    return Q_AGE
+
+def question_age(update: Update, context: CallbackContext) -> int:
+    """ذخیره سن و پرسش وزن"""
+    age = update.message.text
+    try:
+        age = int(age)
+        if age <= 0 or age > 120:
+            raise ValueError
+    except ValueError:
+        update.message.reply_text("❌ سن نامعتبر! لطفاً سن واقعی خود را وارد کنید (مثال: 20):")
+        return Q_AGE
+    
+    context.user_data['confession']['age'] = age
+    update.message.reply_text("2. وزن خود را وارد کنید (مثال: 75):")
+    return Q_WEIGHT
+
+def question_weight(update: Update, context: CallbackContext) -> int:
+    """ذخیره وزن و پرسش قد"""
+    weight = update.message.text
+    try:
+        weight = float(weight)
+        if weight <= 0 or weight > 300:
+            raise ValueError
+    except ValueError:
+        update.message.reply_text("❌ وزن نامعتبر! لطفاً وزن واقعی خود را وارد کنید (مثال: 75):")
+        return Q_WEIGHT
+    
+    context.user_data['confession']['weight'] = weight
+    update.message.reply_text("3. قد خود را برحسب سانتی‌متر وارد کنید (مثال: 182):")
+    return Q_HEIGHT
+
+def question_height(update: Update, context: CallbackContext) -> int:
+    """ذخیره قد و پرسش وضعیت تاهل"""
+    height = update.message.text
+    try:
+        height = int(height)
+        if height <= 0 or height > 250:
+            raise ValueError
+    except ValueError:
+        update.message.reply_text("❌ قد نامعتبر! لطفاً قد واقعی خود را وارد کنید (مثال: 182):")
+        return Q_HEIGHT
+    
+    context.user_data['confession']['height'] = height
+    
+    keyboard = [
+        [InlineKeyboardButton("الف - مجرد هستم", callback_data='الف')],
+        [InlineKeyboardButton("ب - متاهل هستم", callback_data='ب')]
+    ]
+    update.message.reply_text(
+        "4. در حال حاضر مجرد هستید یا متاهل؟",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return Q_MARITAL
+
+def question_marital(update: Update, context: CallbackContext) -> int:
+    """ذخیره وضعیت تاهل و پرسش سوال بعدی"""
+    query = update.callback_query
+    query.answer()
+    context.user_data['confession']['marital'] = query.data
+    
+    keyboard = [
+        [InlineKeyboardButton("الف - بله", callback_data='الف')],
+        [InlineKeyboardButton("ب - خیر", callback_data='ب')]
+    ]
+    query.edit_message_text(
+        "5. آیا در حال حاضر در تعهد احساسی با کسی همراه با احساس خوشبختی و رضایت هستید؟",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return Q_EMOTIONAL
+
+# (توابع مشابه برای سوالات دیگر با الگوی یکسان)
+
+def question_homosexual(update: Update, context: CallbackContext) -> int:
+    """ذخیره آخرین سوال و ارسال نتیجه"""
+    query = update.callback_query
+    query.answer()
+    context.user_data['confession']['homosexual'] = query.data
+    
+    # ارسال اعترافات به دعوت کننده
+    inviter_id = context.user_data['inviter_id']
+    confession = context.user_data['confession']
+    user = update.effective_user
+    
+    confession_text = (
+        f"🔥 اعتراف جدید از کاربر:\n"
+        f"👤: {user.full_name} (@{user.username if user.username else 'N/A'})\n\n"
+        f"سن: {confession.get('age', 'N/A')}\n"
+        f"وزن: {confession.get('weight', 'N/A')}\n"
+        f"قد: {confession.get('height', 'N/A')}\n"
+        f"وضعیت تاهل: {confession.get('marital', 'N/A')}\n"
+        # ... (بقیه فیلدها)
+        f"پیشنهاد رابطه همجنسگرایانه: {confession.get('homosexual', 'N/A')}\n"
+    )
+    
+    # ذخیره اعتراف و ارسال
+    if inviter_id in user_data:
+        user_data[inviter_id]['confessions'].append(confession_text)
+        context.bot.send_message(chat_id=inviter_id, text=confession_text)
+    
+    # پایان گفتگو
+    query.edit_message_text(
+        "✅ اعترافات شما با موفقیت ارسال شد!\n"
+        "حالا صاحب لینک می‌تواند پاسخ‌های شما را ببیند 😈"
+    )
+    return ConversationHandler.END
+
+def cancel(update: Update, context: CallbackContext) -> int:
+    """لغو گفتگو"""
+    update.message.reply_text('عملیات لغو شد.')
+    return ConversationHandler.END
+
+def main() -> None:
+    """اجرای ربات"""
+    TOKEN = "TOKEN_BOTFATHER"  # جایگزینی با توکن واقعی
+    updater = Updater(TOKEN)
+    dispatcher = updater.dispatcher
+
+    # هندلر گفتگو برای کاربران دعوت شده
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start_with_referral)],
+        states={
+            Q_AGE: [MessageHandler(Filters.text & ~Filters.command, question_age)],
+            Q_WEIGHT: [MessageHandler(Filters.text & ~Filters.command, question_weight)],
+            Q_HEIGHT: [MessageHandler(Filters.text & ~Filters.command, question_height)],
+            Q_MARITAL: [MessageHandler(Filters.regex('^(الف|ب)$'), question_marital)],
+            # ... (مراحل دیگر)
+            Q_HOMOSEXUAL: [MessageHandler(Filters.regex('^(الف|ب)$'), question_homosexual)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    # هندلر دستور start برای کاربران اصلی
+    dispatcher.add_handler(CommandHandler('start', start))
+    dispatcher.add_handler(conv_handler)
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
